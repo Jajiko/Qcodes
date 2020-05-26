@@ -7,7 +7,7 @@ from .message_builder import MessageBuilder
 from . import constants
 from .constants import ModuleKind, SlotNr
 if TYPE_CHECKING:
-    from .KeysightB1500 import KeysightB1500
+    from .KeysightB1500_base import KeysightB1500
 
 
 _FMTResponse = namedtuple('FMTResponse', 'value status channel type')
@@ -68,6 +68,33 @@ def parse_module_query_response(response: str) -> Dict[SlotNr, str]:
     }
 
 
+# pattern to match dcv experiment
+_pattern_lrn = re.compile(
+    r"(?P<status_dc>\w{1,3})(?P<chnr_dc>\w),(?P<voltage_dc>\d{1,3}.\d{1,4});"
+    r"(?P<status_ac>\w{1,3})(?P<chnr_ac>\w),(?P<voltage_ac>\d{1,3}.\d{1,4});"
+    r"(?P<status_fc>\w{1,2})(?P<chnr_fc>\w),(?P<frequency>\d{1,6}.\d{1,4})"
+)
+
+
+def parse_dcv_measurement_response(response: str) -> Dict[str, Union[str,
+                                                                     float]]:
+    """
+    Extract status, channel number, value  and accompanying metadata from
+    the string and return them as a dictionary.
+
+    Args:
+        response: Response str to lrn_query For the MFCMU.
+    """
+
+    match = re.match(_pattern_lrn, response)
+    if match is None:
+        raise ValueError(f"{response!r} didn't match {_pattern_lrn!r} pattern")
+
+    dd = match.groupdict()
+    d = cast(Dict[str, Union[str, float]], dd)
+    return d
+
+
 # Pattern to match the spot measurement response against
 _pattern = re.compile(
     r"((?P<status>\w)(?P<chnr>\w)(?P<dtype>\w))?"
@@ -126,7 +153,7 @@ _dcorr_labels_units_map = {
 
 def format_dcorr_response(r: _DCORRResponse) -> str:
     """
-    Format a given response tuple :class:`_DCORRResponse` from
+    Format a given response tuple ``_DCORRResponse`` from
     ``DCORR?`` command as a human-readable string.
     """
     labels_units = _dcorr_labels_units_map[r.mode]
@@ -222,6 +249,6 @@ class B1500Module(InstrumentChannel):
         activated_channels = re.sub(r"[^,\d]", "", response).split(",")
 
         is_enabled = set(self.channels).issubset(
-            int(x) for x in activated_channels
+            int(x) for x in activated_channels if x != ''
         )
         return is_enabled

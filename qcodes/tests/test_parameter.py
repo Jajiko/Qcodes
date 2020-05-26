@@ -46,8 +46,8 @@ class BetterGettableParam(Parameter):
         return self.cache._raw_value
 
 
-class DeprecatedParam(Parameter):
-    """ Parameter that uses deprecated wrapping of get and set"""
+class OverwriteGetParam(Parameter):
+    """ Parameter that overwrites get."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._value = 42
@@ -58,9 +58,30 @@ class DeprecatedParam(Parameter):
         self.get_count += 1
         return self._value
 
+
+class OverwriteSetParam(Parameter):
+    """ Parameter that overwrites set."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._value = 42
+        self.set_count = 0
+        self.get_count = 0
+
     def set(self, value):
         self.set_count += 1
         self._value = value
+
+
+class GetSetRawParameter(Parameter):
+    """ Parameter that implements get and set raw"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def get_raw(self):
+        return self.cache._raw_value
+
+    def set_raw(self, raw_value):
+        pass
 
 
 class BookkeepingValidator(vals.Validator):
@@ -380,8 +401,7 @@ class TestParameter(TestCase):
 
         localparameter = LocalParameter('test_param',
                                         None,
-                                        max_val_age=1,
-                                        initial_value=value)
+                                        max_val_age=1)
         with self.assertRaises(RuntimeError):
             localparameter.get_latest()
 
@@ -401,7 +421,9 @@ class TestParameter(TestCase):
         # Create parameter that has no set_cmd, and get_cmd returns last value
         gettable_parameter = Parameter('one', set_cmd=False, get_cmd=None)
         self.assertTrue(hasattr(gettable_parameter, 'get'))
+        self.assertTrue(gettable_parameter.gettable)
         self.assertFalse(hasattr(gettable_parameter, 'set'))
+        self.assertFalse(gettable_parameter.settable)
         with self.assertRaises(NotImplementedError):
             gettable_parameter(1)
         # Initial value is None if not explicitly set
@@ -413,14 +435,18 @@ class TestParameter(TestCase):
         # Create parameter that saves value during set, and has no get_cmd
         settable_parameter = Parameter('two', set_cmd=None, get_cmd=False)
         self.assertFalse(hasattr(settable_parameter, 'get'))
+        self.assertFalse(settable_parameter.gettable)
         self.assertTrue(hasattr(settable_parameter, 'set'))
+        self.assertTrue(settable_parameter.settable)
         with self.assertRaises(NotImplementedError):
             settable_parameter()
         settable_parameter(42)
 
         settable_gettable_parameter = Parameter('three', set_cmd=None, get_cmd=None)
         self.assertTrue(hasattr(settable_gettable_parameter, 'set'))
+        self.assertTrue(settable_gettable_parameter.settable)
         self.assertTrue(hasattr(settable_gettable_parameter, 'get'))
+        self.assertTrue(settable_gettable_parameter.gettable)
         self.assertIsNone(settable_gettable_parameter())
         settable_gettable_parameter(22)
         self.assertEqual(settable_gettable_parameter(), 22)
@@ -818,7 +844,8 @@ def test_set_latest_works_for_plain_memory_parameter(p, value, raw_value):
     # is set above gets picked up from the `_latest` dictionary (due to
     # `get_cmd=None`)
 
-    if not hasattr(p, 'get'):
+    if not p.gettable:
+        assert not hasattr(p, 'get')
         return  # finish the test here for non-gettable parameters
 
     gotten_value = p.get()
@@ -962,7 +989,9 @@ class TestArrayParameter(TestCase):
         p = SimpleArrayParam([1, 2, 3], name, shape)
 
         self.assertTrue(hasattr(p, 'get'))
+        self.assertTrue(p.gettable)
         self.assertFalse(hasattr(p, 'set'))
+        self.assertFalse(p.settable)
 
         # Yet, it's possible to set the cached value
         p.cache.set([6, 7, 8])
@@ -1130,7 +1159,9 @@ class TestMultiParameter(TestCase):
         p = SimpleMultiParam(original_value, name, names, shapes)
 
         self.assertTrue(hasattr(p, 'get'))
+        self.assertTrue(p.gettable)
         self.assertFalse(hasattr(p, 'set'))
+        self.assertFalse(p.settable)
         # Ensure that ``cache.set`` works
         new_cache = [10, [10, 20, 30], [[40, 50], [60, 70]]]
         p.cache.set(new_cache)
@@ -1145,7 +1176,9 @@ class TestMultiParameter(TestCase):
         # instruments that already make use of them.
         p = SettableMulti([0, [1, 2, 3], [[4, 5], [6, 7]]], name, names, shapes)
         self.assertTrue(hasattr(p, 'get'))
+        self.assertTrue(p.gettable)
         self.assertTrue(hasattr(p, 'set'))
+        self.assertTrue(p.settable)
         value_to_set = [2, [1, 5, 2], [[8, 2], [4, 9]]]
         p.set(value_to_set)
         assert p.get() == value_to_set
@@ -1260,7 +1293,9 @@ class TestStandardParam(TestCase):
             p()
 
         self.assertTrue(hasattr(p, 'set'))
+        self.assertTrue(p.settable)
         self.assertFalse(hasattr(p, 'get'))
+        self.assertFalse(p.gettable)
 
         # For settable-only parameters, using ``cache.set`` may not make
         # sense, nevertheless, it works
@@ -1278,7 +1313,9 @@ class TestStandardParam(TestCase):
             p(10)
 
         self.assertTrue(hasattr(p, 'get'))
+        self.assertTrue(p.gettable)
         self.assertFalse(hasattr(p, 'set'))
+        self.assertFalse(p.settable)
 
         p.cache.set(7)
         self.assertEqual(p.get_latest(), 7)
@@ -1728,43 +1765,94 @@ class TestSetContextManager(TestCase):
         assert self._cp_counter == 3
 
 
-def test_deprecated_param_warns():
+def test_parameter_with_overwritten_get_raises():
     """
-    Test that creating a parameter that has deprecated get and set still works
-    but raises the correct warnings.
+    Test that creating a parameter that overwrites get and set raises runtime errors
     """
 
-    with pytest.warns(UserWarning) as record:
-        a = DeprecatedParam(name='foo')
-    assert len(record) == 2
-    assert record[0].message.args[0] == ("Wrapping get method of parameter: "
-                                         "foo, original get method will not be "
-                                         "directly accessible. It is "
-                                         "recommended to define get_raw in "
-                                         "your subclass instead. Overwriting "
-                                         "get will be an error in the future.")
-    assert record[1].message.args[0] == ("Wrapping set method of parameter: "
-                                         "foo, original set method will not be "
-                                         "directly accessible. It is "
-                                         "recommended to define set_raw in "
-                                         "your subclass instead. Overwriting "
-                                         "set will be an error in the future.")
-    # test that get and set are called as expected (not shadowed by wrapper)
-    assert a.get_count == 0
-    assert a.set_count == 0
-    assert a.get() == 42
-    assert a.get_count == 1
-    assert a.set_count == 0
-    a.set(11)
-    assert a.get_count == 1
-    assert a.set_count == 1
-    assert a.get() == 11
-    assert a.get_count == 2
-    assert a.set_count == 1
-    # check that wrapper functionality works e.g stepping is performed
-    # correctly
-    a.step = 1
-    a.set(20)
-    assert a.set_count == 1+9
-    assert a.get() == 20
-    assert a.get_count == 3
+    with pytest.raises(RuntimeError) as record:
+        a = OverwriteGetParam(name='foo')
+    assert "Overwriting get in a subclass of _BaseParameter: foo is not allowed." == str(record.value)
+
+
+def test_parameter_with_overwritten_set_raises():
+    """
+    Test that creating a parameter that overwrites get and set raises runtime errors
+    """
+    with pytest.raises(RuntimeError) as record:
+        a = OverwriteSetParam(name='foo')
+    assert "Overwriting set in a subclass of _BaseParameter: foo is not allowed." == str(record.value)
+
+
+def test_unknown_args_to_baseparameter_warns():
+    """
+    Passing an unknown kwarg to _BaseParameter should trigger a warning
+    """
+    with pytest.warns(Warning):
+        a = _BaseParameter(name='Foo',
+                           instrument=None,
+                           snapshotable=False)
+
+
+@pytest.mark.parametrize("get_cmd, set_cmd", [(False, False), (False, None), (None, None), (None, False),
+                                              (lambda: 1, lambda x: x)])
+def test_gettable_settable_attributes_with_get_set_cmd(get_cmd, set_cmd):
+    a = Parameter(name='foo',
+                  get_cmd=get_cmd,
+                  set_cmd=set_cmd)
+    expected_gettable = get_cmd is not False
+    expected_settable = set_cmd is not False
+
+    assert a.gettable is expected_gettable
+    assert a.settable is expected_settable
+
+
+@pytest.mark.parametrize("baseclass", [_BaseParameter, Parameter])
+def test_gettable_settable_attributes_with_get_set_raw(baseclass):
+    """Test that parameters that have get_raw,set_raw are
+    listed as gettable/settable and reverse."""
+
+    class GetSetParam(baseclass):
+        def __init__(self, *args, initial_value=None, **kwargs):
+            self._value = initial_value
+            super().__init__(*args, **kwargs)
+
+        def get_raw(self):
+            return self._value
+
+        def set_raw(self, value):
+            self._value = value
+
+    a = GetSetParam('foo', instrument=None, initial_value=1)
+
+    assert a.gettable is True
+    assert a.settable is True
+
+    b = _BaseParameter('foo', None)
+
+    assert b.gettable is False
+    assert b.settable is False
+
+
+@pytest.mark.parametrize("working_get_cmd", (False, None))
+@pytest.mark.parametrize("working_set_cmd", (False, None))
+def test_get_raw_and_get_cmd_raises(working_get_cmd, working_set_cmd):
+    with pytest.raises(TypeError, match="get_raw"):
+        GetSetRawParameter(name="param1", get_cmd="GiveMeTheValue", set_cmd=working_set_cmd)
+    with pytest.raises(TypeError, match="set_raw"):
+        GetSetRawParameter(name="param2", set_cmd="HereIsTheValue {}", get_cmd=working_get_cmd)
+    GetSetRawParameter("param3", get_cmd=working_get_cmd, set_cmd=working_set_cmd)
+
+
+def test_get_from_cache_does_not_trigger_real_get_if_get_if_invalid_false():
+    """
+    assert that calling get on the cache with get_if_invalid=False does
+    not trigger a get of the parameter when parameter has expired due to max_val_age
+    """
+    param = BetterGettableParam(name="param", max_val_age=1)
+    param.get()
+    assert param._get_count == 1
+    # let the cache expire
+    time.sleep(2)
+    param.cache.get(get_if_invalid=False)
+    assert param._get_count == 1

@@ -5,13 +5,14 @@ import warnings
 from typing import List, Dict, Optional
 
 import qcodes as qc
-from qcodes import VisaInstrument, DataSet
+from qcodes import VisaInstrument
+from qcodes.data.data_set import DataSet
 from qcodes.instrument.channel import InstrumentChannel
 from qcodes.instrument.base import Instrument, Parameter
 from qcodes.instrument.parameter import ArrayParameter, ParameterWithSetpoints
 import qcodes.utils.validators as vals
 from qcodes.utils.helpers import create_on_off_val_mapping
-
+from qcodes.measure import Measure
 
 log = logging.getLogger(__name__)
 
@@ -52,14 +53,14 @@ class LuaSweepParameter(ArrayParameter):
             self.setpoint_names = ('Voltage',)
             self.setpoint_units = ('V',)
             self.label = 'current'
-            self.name = 'iv_sweep'
+            self._short_name = 'iv_sweep'
 
         if mode == 'VI':
             self.unit = 'V'
             self.setpoint_names = ('Current',)
             self.setpoint_units = ('A',)
             self.label = 'voltage'
-            self.name = 'vi_sweep'
+            self._short_name = 'vi_sweep'
 
         self.setpoints = (tuple(np.linspace(start, stop, steps)),)
 
@@ -432,7 +433,7 @@ class KeithleyChannel(InstrumentChannel):
         # prepare setpoints, units, name
         self.fastsweep.prepareSweep(start, stop, steps, mode)
 
-        data = qc.Measure(self.fastsweep).run()
+        data = Measure(self.fastsweep).run()
 
         return data
 
@@ -568,7 +569,7 @@ class Keithley_2600(VisaInstrument):
 
         model = self.ask('localnode.model')
 
-        knownmodels = ['2601B', '2602B', '2604B', '2611B', '2612B',
+        knownmodels = ['2601B', '2602A', '2602B', '2604B', '2611B', '2612B',
                        '2614B', '2635B', '2636B']
         if model not in knownmodels:
             kmstring = ('{}, '*(len(knownmodels)-1)).format(*knownmodels[:-1])
@@ -579,6 +580,7 @@ class Keithley_2600(VisaInstrument):
         self.model = model
 
         self._vranges = {'2601B': [0.1, 1, 6, 40],
+                         '2602A': [0.1, 1, 6, 40],
                          '2602B': [0.1, 1, 6, 40],
                          '2604B': [0.1, 1, 6, 40],
                          '2611B': [0.2, 2, 20, 200],
@@ -590,6 +592,8 @@ class Keithley_2600(VisaInstrument):
         # TODO: In pulsed mode, models 2611B, 2612B, and 2614B
         # actually allow up to 10 A.
         self._iranges = {'2601B': [100e-9, 1e-6, 10e-6, 100e-6,
+                                   1e-3, 0.01, 0.1, 1, 3],
+                         '2602A': [100e-9, 1e-6, 10e-6, 100e-6,
                                    1e-3, 0.01, 0.1, 1, 3],
                          '2602B': [100e-9, 1e-6, 10e-6, 100e-6,
                                    1e-3, 0.01, 0.1, 1, 3],
@@ -609,6 +613,7 @@ class Keithley_2600(VisaInstrument):
                                    1e-3, 10e-6, 100e-3, 1, 1.5]}
 
         self._vlimit_minmax = {'2601B': [10e-3, 40],
+                               '2602A': [10e-3, 40],
                                '2602B': [10e-3, 40],
                                '2604B': [10e-3, 40],
                                '2611B': [20e-3, 200],
@@ -619,6 +624,7 @@ class Keithley_2600(VisaInstrument):
                                '2636B': [20e-3, 200],}
 
         self._ilimit_minmax = {'2601B': [10e-9, 3],
+                               '2602A': [10e-9, 3],
                                '2602B': [10e-9, 3],
                                '2604B': [10e-9, 3],
                                '2611B': [10e-9, 3],

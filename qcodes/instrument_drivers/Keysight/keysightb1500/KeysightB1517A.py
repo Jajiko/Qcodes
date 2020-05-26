@@ -10,7 +10,7 @@ from .message_builder import MessageBuilder
 from . import constants
 from .constants import ModuleKind, ChNr, AAD, MM
 if TYPE_CHECKING:
-    from .KeysightB1500 import KeysightB1500
+    from .KeysightB1500_base import KeysightB1500
 
 
 class B1517A(B1500Module):
@@ -67,6 +67,7 @@ class B1517A(B1500Module):
 
         self.add_parameter(
             name="voltage",
+            unit="V",
             set_cmd=self._set_voltage,
             get_cmd=self._get_voltage,
             snapshot_get=False
@@ -74,6 +75,7 @@ class B1517A(B1500Module):
 
         self.add_parameter(
             name="current",
+            unit="A",
             set_cmd=self._set_current,
             get_cmd=self._get_current,
             snapshot_get=False
