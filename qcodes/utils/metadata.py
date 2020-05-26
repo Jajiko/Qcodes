@@ -82,9 +82,10 @@ def extract_param_values(snapshot: Snapshot) -> Dict[ParameterKey, Any]:
     instrument and parameter names onto parameter values.
     """
     parameters = {}
-    for param_name, param in snapshot['station']['parameters'].items():
+    snapshot = snapshot.get('station', snapshot)
+    for param_name, param in snapshot['parameters'].items():
         parameters[param_name] = param['value']
-    for instrument_name, instrument in snapshot['station']['instruments'].items():
+    for instrument_name, instrument in snapshot['instruments'].items():
         for param_name, param in instrument['parameters'].items():
             if 'value' in param:
                 parameters[instrument_name, param_name] = param['value']
